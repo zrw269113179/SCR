@@ -11,6 +11,7 @@ typedef struct
     unsigned char SCR_port;/// 可控硅端口
     unsigned char SCR_isOpen: 1;/// 是否开启可控硅
     unsigned char SCR_OpenLevel: 1; /// 可控硅开启电平
+    unsigned char SCR_isDeal: 1; /// 当前过零周期是否处理
 #ifdef SCR_LOWSTART_ENABLE
     /// 缓启动部分
 
@@ -33,11 +34,13 @@ static SCR_object SCRobj[SCR_NUM];
  */
 void f_SCR_init(unsigned char id, unsigned char port, unsigned char openLevel)
 {
+
     SCRobj[id].SCR_duty = 50; /// 可控硅占空比
     SCRobj[id].SCR_tick = 0;/// 可控硅计时
     SCRobj[id].SCR_isOpen = 0;/// 是否开启可控硅
     SCRobj[id].SCR_port = port;/// 可控硅端口
     SCRobj[id].SCR_OpenLevel = openLevel;/// 可控硅端口
+    SCRobj[id].SCR_isDeal = 1;/// 过零周期已处理
 #ifdef SCR_LOWSTART_ENABLE
     /// 缓启动部分
     SCRobj[id].lowStartPerDuty = 2; /// 每次缓启动增加占空比
@@ -89,10 +92,11 @@ void zero_detection(void)
 {
     unsigned char i;
 
-    for (i = 0; i < SCR_NUM; i++)
+    for (i = 0; i < SCR_NUM; ++i)
     {
         SCRobj[i].SCR_tick = 0;
         pin_write(SCRobj[i].SCR_port, !SCRobj[i].SCR_OpenLevel);
+        SCRobj[i].SCR_isDeal = 0;
 #ifdef SCR_LOWSTART_ENABLE
 
         if (SCRobj[i].isLowStart && SCRobj[i].lowStartState == LOW_STARTINT)
@@ -121,7 +125,7 @@ void zero_detection(void)
  */
 void f_SCR_enable(unsigned char id, unsigned char enable)
 {
-    SCRobj[id].SCR_isOpen = enable;
+
 #ifdef SCR_LOWSTART_ENABLE
 
     if (enable != 0)
@@ -134,8 +138,11 @@ void f_SCR_enable(unsigned char id, unsigned char enable)
             SCRobj[id].lowStartDuty = 0;/// 当前占空比
 
         }
+
 #endif
     }
+
+    SCRobj[id].SCR_isOpen = enable;
 }
 /**
  * @brief Set the SCR duty object
@@ -157,19 +164,20 @@ void f_SCR_control_tick(void)
 
     for (i = 0 ; i < SCR_NUM; ++i)
     {
-        if (SCRobj[i].SCR_isOpen)
+        if (SCRobj[i].SCR_isOpen && SCRobj[i].SCR_isDeal == 0)
         {
             unsigned char temp;
 #ifdef SCR_LOWSTART_ENABLE
 
             if (SCRobj[i].isLowStart)
             {
-                temp = 100 - SCRobj[i].lowStartState == LOW_STARTED ? SCR[i].SCR_duty : SCRobj[i].lowStartDuty;
+                temp = SCRobj[i].lowStartState == LOW_STARTED ? SCRobj[i].SCR_duty : SCRobj[i].lowStartDuty;
+                temp = 100 - temp;
             }
             else
 #endif
             {
-                temp = 100 - SCR[i].SCR_duty;
+                temp = 100 - SCRobj[i].SCR_duty;
             }
 
             ++SCRobj[i].SCR_tick;
@@ -177,6 +185,7 @@ void f_SCR_control_tick(void)
             if (SCRobj[i].SCR_tick >= temp + SCR_HOLD_TICK)
             {
                 pin_write(SCRobj[i].SCR_port, !SCRobj[i].SCR_OpenLevel);
+                SCRobj[i].SCR_isDeal = 1;
             }
             else if (SCRobj[i].SCR_tick >= temp)
             {

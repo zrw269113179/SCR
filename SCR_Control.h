@@ -1,7 +1,7 @@
 #ifndef SCR_CONTROL_H
 #define SCR_CONTROL_H
 
-#define SCR_NUM     3          /// 可控硅数量
+#define SCR_NUM     1          /// 可控硅数量
 #define SCR_HOLD_TICK   5      /// 可控硅使能电平持续时间
 #define SCR_LOWSTART_ENABLE    /// 可控硅缓启动使能,无需该功能则注释
 
