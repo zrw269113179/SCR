@@ -2,7 +2,7 @@
 
 
 
-#define LOW_STARTINT    0
+#define LOW_STARTING    0
 #define LOW_STARTED     1
 typedef struct
 {
@@ -16,6 +16,7 @@ typedef struct
     /// 缓启动部分
 
     unsigned char lowStartPerDuty: 7; /// 每次缓启动增加占空比
+    unsigned char lowStartStartDuty: 7; /// 缓启动初始占空比
     unsigned char isLowStart: 1;/// 是否缓启动
     unsigned char lowStartState: 1;/// 缓启动标志
     unsigned char lowStartEveryCycle;/// 运行多少个半周期增加占空比
@@ -50,6 +51,7 @@ void f_SCR_init(unsigned char id, unsigned char port, unsigned char openLevel)
     SCRobj[id].cycleCnt = 0;/// 运行周期
     SCRobj[id].lowStartDuty = 0;/// 当前占空比
     SCRobj[id].isLowStart = 0;
+    SCRobj[id].lowStartStartDuty = 0;
 #endif
 }
 
@@ -57,10 +59,11 @@ void f_SCR_init(unsigned char id, unsigned char port, unsigned char openLevel)
  * @brief 打开可控硅缓启动
  *
  * @param id 可控硅编号
+ * @param startDuty 起始占空比
  * @param perDuty 每次增加多少占空比
  * @param perCycle 每多少周期增加一次占空比
  */
-void f_SCR_SetLowStartEnable(unsigned char id, unsigned char perDuty, unsigned char perCycle)
+void f_SCR_SetLowStartEnable(unsigned char id, unsigned char startDuty, unsigned char perDuty, unsigned char perCycle)
 {
 #ifdef SCR_LOWSTART_ENABLE
     SCRobj[id].lowStartPerDuty = perDuty; /// 每次缓启动增加占空比
@@ -68,7 +71,8 @@ void f_SCR_SetLowStartEnable(unsigned char id, unsigned char perDuty, unsigned c
     SCRobj[id].isLowStart = 1;/// 是否缓启动
     SCRobj[id].lowStartState = 0;/// 缓启动标志
     SCRobj[id].cycleCnt = 0;/// 运行周期
-    SCRobj[id].lowStartDuty = 0;/// 当前占空比
+    SCRobj[id].lowStartDuty = startDuty;/// 当前占空比
+    SCRobj[id].lowStartStartDuty = startDuty;
 #endif
 }
 
@@ -99,19 +103,36 @@ void zero_detection(void)
         SCRobj[i].SCR_isDeal = 0;
 #ifdef SCR_LOWSTART_ENABLE
 
-        if (SCRobj[i].isLowStart && SCRobj[i].lowStartState == LOW_STARTINT)
+        if (SCRobj[i].isLowStart && SCRobj[i].lowStartState == LOW_STARTING)
         {
             ++SCRobj[i].cycleCnt;
 
             if (SCRobj[i].lowStartEveryCycle <= SCRobj[i].cycleCnt)
             {
                 SCRobj[i].cycleCnt = 0;
-                SCRobj[i].lowStartDuty += SCRobj[i].lowStartPerDuty;
 
-                if (SCRobj[i].lowStartDuty >= SCRobj[i].SCR_duty)
+                if (SCRobj[i].lowStartDuty < SCRobj[i].SCR_duty)
                 {
-                    SCRobj[i].lowStartState = LOW_STARTED;
+                    SCRobj[i].lowStartDuty += SCRobj[i].lowStartPerDuty;
+
+                    if (SCRobj[i].lowStartDuty >= SCRobj[i].SCR_duty)
+                    {
+                        SCRobj[i].lowStartState = LOW_STARTED;
+                        SCRobj[i].lowStartDuty = SCRobj[i].SCR_duty;
+                    }
                 }
+                else
+                {
+                    SCRobj[i].lowStartDuty -= SCRobj[i].lowStartPerDuty;
+
+                    if (SCRobj[i].lowStartDuty <= SCRobj[i].SCR_duty)
+                    {
+                        SCRobj[i].lowStartState = LOW_STARTED;
+                        SCRobj[i].lowStartDuty = SCRobj[i].SCR_duty;
+                    }
+                }
+
+
             }
         }
 
@@ -133,9 +154,9 @@ void f_SCR_enable(unsigned char id, unsigned char enable)
         if (enable != SCRobj[id].SCR_isOpen)
         {
 
-            SCRobj[id].lowStartState = 0;/// 缓启动标志
+            SCRobj[id].lowStartState = LOW_STARTING;/// 缓启动标志
             SCRobj[id].cycleCnt = 0;/// 运行周期
-            SCRobj[id].lowStartDuty = 0;/// 当前占空比
+            SCRobj[id].lowStartDuty = SCRobj[id].lowStartStartDuty;/// 当前占空比
 
         }
 
@@ -152,7 +173,15 @@ void f_SCR_enable(unsigned char id, unsigned char enable)
  */
 void f_set_SCR_duty(unsigned char id, unsigned char duty)
 {
-    SCRobj[id].SCR_duty = duty;
+
+    if (duty != SCRobj[id].SCR_duty)
+    {
+#ifdef SCR_TRANSITION_ENABLE
+        //SCRobj[id].lowStartDuty = SCRobj[id].SCR_duty;/// 当前占空比
+        SCRobj[id].lowStartState = LOW_STARTING;
+#endif
+        SCRobj[id].SCR_duty = duty;
+    }
 }
 /**
  * @brief 时间片函数，将该函数放置于时间片内，100us
